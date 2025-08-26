@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    { "name": "Run: init-db", "type": "python", "request": "launch",
+      "program": "${workspaceFolder}/run.py", "args": ["init-db"], "console": "integratedTerminal" },
+    { "name": "Run: import", "type": "python", "request": "launch",
+      "program": "${workspaceFolder}/run.py", "args": ["import", "--all"], "console": "integratedTerminal" },
+    { "name": "Run: calc-indicators", "type": "python", "request": "launch",
+      "program": "${workspaceFolder}/run.py", "args": ["calc-indicators"], "console": "integratedTerminal" },
+    { "name": "Run: classify", "type": "python", "request": "launch",
+      "program": "${workspaceFolder}/run.py", "args": ["classify"], "console": "integratedTerminal" },
+    { "name": "Run: llm-analyze", "type": "python", "request": "launch",
+      "program": "${workspaceFolder}/run.py", "args": ["llm-analyze"], "console": "integratedTerminal" },
+    { "name": "Run: report", "type": "python", "request": "launch",
+      "program": "${workspaceFolder}/run.py", "args": ["report", "--period", "latest"], "console": "integratedTerminal" }
+  ]
+}

@@ -1,0 +1,66 @@
+A1:
+  group: Liquidity
+  critical: true
+  interpretation: increase_good
+  thresholds: {}
+  benchmarks: {}
+QN9:
+  group: Credit
+  critical: true
+  interpretation: depends
+  thresholds: {}
+  benchmarks: {}
+O1:
+  group: Funding
+  critical: true
+  interpretation: increase_good
+  thresholds: {}
+  benchmarks: {}
+O2:
+  group: Funding
+  critical: true
+  interpretation: increase_bad
+  thresholds: {}
+  benchmarks: {}
+QN11:
+  group: AssetQuality
+  critical: true
+  interpretation: increase_bad
+  thresholds: {warn: 9}
+  benchmarks: {}
+QN15:
+  group: Capital
+  critical: true
+  interpretation: increase_good
+  thresholds: {}
+  benchmarks: {}
+QN18:
+  group: Capital
+  critical: true
+  interpretation: increase_good
+  thresholds: {reg_min: 8.0}
+  benchmarks: {}
+QN19:
+  group: Capital
+  critical: true
+  interpretation: increase_good
+  thresholds: {reg_min: 6.0}
+  benchmarks: {}
+QN13:
+  group: Size
+  critical: false
+  interpretation: depends
+  thresholds: {}
+  benchmarks: {}
+QN17:
+  group: Interbank
+  critical: true
+  interpretation: range_optimal
+  thresholds: {}
+  benchmarks: {}
+QN16:
+  group: Profitability
+  critical: false
+  interpretation: increase_good
+  thresholds: {}
+  benchmarks: {}

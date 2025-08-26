@@ -1,0 +1,7 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Create venv", "type": "shell", "command": "python3 -m venv .venv" },
+    { "label": "Install deps", "type": "shell", "command": ". .venv/bin/activate && pip install -r requirements.txt", "dependsOn": ["Create venv"] }
+  ]
+}

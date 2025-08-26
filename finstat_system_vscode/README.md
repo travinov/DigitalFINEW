@@ -1,0 +1,129 @@
+# Финансовая система анализа
+
+## Назначение
+Система импортирует финансовую отчетность банков (DBF/архивы), сохраняет данные в локальную SQLite, рассчитывает индикаторы и их динамику, выполняет алгоритмическую классификацию (Green/Yellow/Red), проводит LLM‑анализ и формирует XLS‑отчет с несколькими листами.
+
+## Архитектура и модули
+- `src/db.py` — инициализация БД (`data/finstat.db`), схема таблиц, загрузка конфигурации.
+- `src/import_dbf.py` — импорт DBF/архивов из `input/` с автоопределением полей, кодировок и A/P суффиксов, перенос обработанных файлов в `archive/`.
+- `src/indicators.py` — расчет базовых индикаторов по формулам, а также производных показателей изменения за 1 и 6 месяцев (гибкое окно).
+- `src/rules_engine.py` — алгоритмическая классификация по YAML‑правилам (наборы условий AND/OR для Yellow/Red).
+- `src/llm_module.py` — LLM‑анализ (OpenAI), сбор признаков, системный промпт, логирование запросов/ответов и сохранение результатов.
+- `src/report_xls.py` — формирование XLS‑отчета: `Summary`, `Indicators_long`, `Raw_values`, `LLM`.
+- `src/data_viewer.py` — CLI‑просмотр данных (`summary|banks|forms|periods|log|raw|indicators`).
+- `src/archive_utils.py` — работа с RAR/ZIP, временные папки.
+- `configs/` — конфигурации: `config.yaml`, `indicators.yaml`, `rules.yaml`, `data_dictionary.csv`.
+
+## Схема БД (основные таблицы)
+- `banks(bank_id, bank_name)`
+- `forms(form_code, form_name)`
+- `raw_values(bank_id, form_code, period, item_code, value)` — сырые значения (PK по всем полям).
+- `indicator_values(bank_id, indicator_id, period, value)` — рассчитанные показатели.
+- `algo_classifications(bank_id, period, status, details)` — результаты правил.
+- `llm_classifications(bank_id, period, status, reasoning, model)` — результаты LLM.
+- `ingestion_log(file_name, bank_id, form_code, period, rows_loaded)` — журнал импорта.
+
+## Настройка путей и форм
+`configs/config.yaml`:
+- `input_folder: "input"`, `archive_folder: "archive"`
+- Регулярные выражения и паттерны имен файлов для разных форм.
+- Для 0409101 учтен признак Актив/Пассив `ap_field: "A_P"` с маппингом `ap_map`.
+
+## Рассчитываемые показатели
+Формулы заданы в `configs/indicators.yaml`. Примеры (неполный список):
+- Базовые: `capital_adequacy`, `loan_to_deposit`, `npl_ratio`
+- QN‑показатели: `QN1..QN20` (включая `QN17` в процентах, `QN18=H1_0`, `QN19=H1_2`)
+- Усеченный баланс: `A1, A2, A3, A3_1, A3_2, A3_3, A4` и обязательства `O1, O1_1, O1_2, O1_3, O2, O3, O4`
+
+Динамика (создаются автоматически в `indicator_values`):
+- `{ID}_PCT_M1` — изменение за 1 месяц, %: `(curr − prev1) / |prev1| × 100`, если `prev1≠0`.
+- `{ID}_PCT_M6` — изменение за 6 месяцев, %: используется «гибкое окно»: если ровно `p−6` нет, берется самая ранняя доступная дата в пределах последних 6 месяцев. Формула та же `(curr − prev6)/|prev6|×100`.
+
+## Алгоритмическая классификация
+`configs/rules.yaml` использует только наборы условий (одиночные пороги отключены):
+- `yellow_sets`: список наборов (AND внутри набора, OR между наборами).
+- `red_sets`: список наборов (AND внутри набора, OR между наборами).
+
+Порядок проверки и приоритеты:
+1) Сначала проверяются `red_sets`. Если выполнен хотя бы один набор — присваивается Red.
+2) Если Red не сработал, проверяются `yellow_sets`. Если выполнен хотя бы один набор — присваивается Yellow.
+3) Если ни один набор не сработал — присваивается Green.
+
+Текущая логика в `src/rules_engine.py`:
+- Сначала проверяются `red_sets` (OR по наборам, AND внутри). Если сработал любой набор → статус Red.
+- Если Red не сработал, проверяются `yellow_sets` (OR по наборам, AND внутри). Если сработал любой набор → статус Yellow.
+- Иначе → Green.
+- Одиночные пороги отключены; учитываются только наборы.
+- Приоритет реализован каскадом: Red → Yellow → Green.
+3) Если ничего не сработало — `Green`.
+
+## LLM‑анализ
+Используется OpenAI (Responses API, reasoning). По умолчанию модель `gpt-5` (можно изменить в `configs/config.yaml`). Анализ для последнего периода, 6‑месячный срез метрик: A1, QN9, O1, O2, QN11, QN15, QN18, QN19, QN13, а также соответствующие PCT_M1/PCT_M6, и `QN17`, `QN16`.
+
+Системный промпт (сокращенно):
+> Ты — беспристрастный риск‑аналитик межбанковского кредитования. Оцени риски ликвидности, фондирования, капитала и качества активов на горизонте 1–3 мес. Используй только предоставленные данные. Не делай выводов о высоком риске без подтверждений несколькими показателями и устойчивой динамики. Сезонные колебания не трактуй как ухудшение. Если данных недостаточно — выбирай Green. Верни чистый JSON со схемой: {status, confidence, reasons[], watchlist[], recommendation, metrics_snapshot, summary_ru}.
+
+Параметры запроса/ответа логируются по каждому банку в `data/llm_logs/<latest_period>/` (файлы `*_request.json`, `*_response.json`). В таблицу `llm_classifications` пишутся `status`, `reasoning` (JSON результата), `model`.
+
+### Новые настройки устойчивости (configs/config.yaml → llm)
+```yaml
+llm:
+  mode: "responses"          # фиксировано
+  model: "gpt-5"             # reasoning‑модель
+  system_prompt_file: "configs/llm_system_prompt.txt"
+  # Ограничители и устойчивость
+  bank_limit: 0               # доп. ограничение числа банков сверху (0 = без лимита)
+  max_banks: 0                # жёсткий потолок на прогон (0 = без)
+  only_errors: false          # true — прогонять только банки без результата/с ошибкой
+  dry_run: false              # true — ничего не отправлять в API (для проверки пайплайна)
+  strict_cache: false         # true — не вызывать API, использовать только кэш
+  timeout_sec: 120            # таймаут одного запроса
+  max_retries: 2              # число повторов
+  backoff_seconds: 2          # базовая задержка (экспоненциально растёт)
+  stop_after_consecutive_errors: 10  # остановить прогон при N подряд ошибках
+```
+
+Рекомендации к запуску:
+- Сначала `LLM_BANK_LIMIT=5 python run.py llm-analyze` (сухой прогон на малом числе банков).
+- Затем при необходимости `only_errors: true` — добрать только неуспешные.
+- Для экономии — `strict_cache: true` (только чтение кэша) или `dry_run: true` (без запросов).
+
+## Процесс работы (пайплайн)
+1) Инициализировать БД: `python run.py init-db`
+2) Положить файлы отчетности в `input/` (поддерживаются `.dbf`, `.rar`, `.zip`).
+3) Импорт: `python run.py import` (после импорта файлы перемещаются в `archive/`).
+4) Расчет индикаторов: `python run.py calc-indicators` (включая PCT_M1/PCT_M6).
+5) Классификация: `python run.py classify`.
+6) LLM‑анализ: `python run.py llm-analyze`.
+7) Отчет XLS: `python run.py report --period latest` → файл `report_<YYYYMMDD>_<YYYYMMDD_HHMMSS>.xlsx`.
+8) Просмотр данных (опционально): `python run.py view summary` и другие команды.
+
+## Установка и запуск (How‑to)
+1) Зависимости:
+```
+python3 -m pip install -r requirements.txt
+# Для RAR на macOS: brew install unar (или apt install unrar на Linux)
+```
+2) Настроить ключ OpenAI через `.env` (рекомендуется) в `finstat_system_vscode/.env`:
+```
+OPENAI_API_KEY=sk-...
+```
+3) Выполнить пайплайн (пример):
+```
+python run.py init-db
+python run.py import
+python run.py calc-indicators
+python run.py classify
+python run.py llm-analyze
+python run.py report --period latest
+```
+
+## Кастомизация
+- Добавить/изменить индикаторы: правьте `configs/indicators.yaml` и (при необходимости) сопоставления в `configs/data_dictionary.csv`.
+- Пороговые правила: правьте `configs/rules.yaml` (наборы `yellow_sets`, `red_sets`, `red_and`).
+- Ограничить число банков для отладки LLM: переменная окружения `LLM_BANK_LIMIT` (целое число).
+
+## Диагностика
+- Логи импорта: таблица `ingestion_log` и просмотр `python run.py view log`.
+- Логи LLM промптов/ответов: `data/llm_logs/<period>/`.
+- Частые причины нулевых индикаторов: отсутствие сопоставления `item_code`↔`std_key` в `data_dictionary.csv` либо коды без A/P‑суффикса.

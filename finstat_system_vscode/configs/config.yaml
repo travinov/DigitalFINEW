@@ -1,0 +1,93 @@
+db_url: "sqlite:///data/finstat.db"
+input_folder: "input"
+archive_folder: "archive"
+filename_regex: "(?P<bank_id>[A-Za-z0-9_-]+)_(?P<form>[A-Za-z0-9_-]+)_(?P<date>(\\d{8}|\\d{4}-\\d{2}-\\d{2}))\\.dbf"
+default_item_fields: ["ITEM","ROW_CODE","CODE","ACODE","STR","C1"]
+default_value_fields: ["VALUE","AMOUNT","SUM","VAL","VSEGO","C3","IITG"]
+forms:
+  # Форма 0409101 - Оборотная ведомость по счетам бухгалтерского учета
+  "0409101": {
+    item_field: "NUM_SC",
+    value_field: "IITG",
+    bank_field: "REGN",
+    encoding: "cp866",
+    filename_patterns: ["(?P<mm>\\d{2})(?P<yyyy>\\d{4})B1\\.dbf"],
+    ap_field: "A_P",          # столбец с признаком Актив/Пассив в форме 0409101
+    ap_map: { "1": "A", "2": "P", "3": "AP" }  # 1=Актив, 2=Пассив, 3=Активно-пассивный
+  }
+
+  # Форма 0409102 - Отчет о финансовых результатах (прибыли и убытки)
+  "0409102": {
+    item_field: "CODE",
+    value_field: "SIM_ITOGO",
+    bank_field: "REGN",
+    encoding: "cp866",
+    filename_patterns: ["(?P<mm>\\d{2})(?P<yyyy>\\d{4})_P1\\.dbf", "Q(?P<q>\\d)(?P<yyyy>\\d{4})_P1\\.dbf"]
+  }
+
+  # Форма 0409802 - Консолидированный балансовый отчет
+  "0409802": {
+    item_field: "STR",
+    value_field: "VSEGO",
+    bank_field: "REGN_GKO",
+    encoding: "cp866",
+    filename_patterns: ["PK802(?P<yy>\\d{2})(?P<mm>\\d{2})\\.dbf"]
+  }
+
+  # Форма 0409803 - Консолидированный отчет о финансовых результатах
+  "0409803": {
+    item_field: "STR",
+    value_field: "VSEGO",
+    bank_field: "REGN_GKO",
+    encoding: "cp866",
+    filename_patterns: ["PK803(?P<yy>\\d{2})(?P<mm>\\d{2})\\.dbf"]
+  }
+
+  # Форма 0409805 - Раздел 4. Значения обязательных нормативов банковской группы
+  "0409805": {
+    item_field: "NAME_NORM",
+    value_field: "FAKT_ZN",
+    bank_field: "REGN_GKO",
+    encoding: "cp866",
+    filename_patterns: ["PN805(?P<yy>\\d{2})(?P<mm>\\d{2})\\.dbf"]
+  }
+
+  # Форма 0409123 - пока без официального описания (проблемные поля)
+  "0409123": {
+    item_field: "C1",
+    value_field: "C3",
+    bank_field: "REGN",
+    encoding: "cp866",
+    filename_patterns: ["(?P<mm>\\d{2})(?P<yyyy>\\d{4})_123D\\.dbf"]
+  }
+
+  # Форма 0409135_3 - Значения обязательных нормативов
+  "0409135_3": {
+    item_field: "C1_3",
+    value_field: "C2_3",
+    bank_field: "REGN",
+    encoding: "cp866",
+    filename_patterns: ["(?P<mm>\\d{2})(?P<yyyy>\\d{4})_135_3\\.dbf"]
+  }
+
+# LLM настройки
+llm:
+  mode: "responses"               # assistants | responses
+  model: "gpt-5"                  # модель с рассуждениями (Responses API)
+  reasoning_effort: "low"         # low | medium | high
+  system_prompt_file: "configs/llm_system_prompt.txt"
+  # Ограничители и устойчивость
+  bank_limit: 0                    # 0 = без ограничения сверху (доп. лимит к переменной окружения LLM_BANK_LIMIT)
+  max_banks: 0                     # жёсткий потолок на обработку за запуск (0 = без потолка)
+  only_errors: false               # true — обрабатывать только банки, у которых ошибки/нет записей
+  dry_run: false                   # true — ничего не отправлять в API, только выводить план
+  strict_cache: false              # true — не вызывать API, если нет кэша (только чтение кэша)
+  timeout_sec: 180                 # таймаут HTTP для одного запроса
+  max_retries: 0                   # число повторов при временных сбоях
+  backoff_seconds: 1               # базовая задержка между повторами (экспоненциальная)
+  stop_after_consecutive_errors: 1 # остановить прогон, если подряд столько ошибок
+  bank_limit: 0                    # 0 = без ограничений
+  concurrency: 1                   # зарезервировано на будущее
+  retry_policy:
+    max_retries: 2
+    backoff_seconds: 2

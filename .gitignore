@@ -1,0 +1,8 @@
+# DigitalFINEW artifacts
+finstat_system_vscode/data/llm_logs/
+finstat_system_vscode/data/finstat.db
+finstat_system_vscode/report_*.xlsx
+finstat_system_vscode/input/
+finstat_system_vscode/archive/
+__pycache__/
+*.pyc
