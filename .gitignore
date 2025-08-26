@@ -6,3 +6,10 @@ finstat_system_vscode/input/
 finstat_system_vscode/archive/
 __pycache__/
 *.pyc
+# Env files
+.env
+*.env
+.env.*
+finstat_system_vscode/.env
+finstat_system_vscode/*.env
+finstat_system_vscode/.env.*
