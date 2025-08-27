@@ -72,6 +72,7 @@ forms:
 
 # LLM настройки
 llm:
+  provider: "openai"             # openai | gigachat
   mode: "responses"               # assistants | responses
   model: "gpt-5"                  # модель с рассуждениями (Responses API)
   reasoning_effort: "low"         # low | medium | high
@@ -91,3 +92,15 @@ llm:
   retry_policy:
     max_retries: 2
     backoff_seconds: 2
+
+  # Настройки GigaChat (используются при provider: gigachat)
+  gigachat:
+    model: "GigaChat-2-Max"
+    base_url: "https://sbercode.atdcode.ru/proxy/api/v1/gigachat/"
+    scope: "GIGACHAT_API_PERS"
+    timeout_sec: 180
+    temperature: 0.1
+    top_p: 0.3
+    max_tokens: 2000
+    profanity_check: false
+    verify_ssl_certs: false

@@ -6,6 +6,10 @@ import yaml
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from openai import OpenAI
+try:
+    from langchain_gigachat import GigaChat
+except Exception:  # пакет может быть не установлен у всех
+    GigaChat = None  # type: ignore
 from tqdm import tqdm
 from .db import load_config
 
@@ -227,6 +231,17 @@ def _preflight_openai(client: OpenAI, model: str, timeout_sec: int) -> Tuple[boo
         return False, f"preflight failed: {e}"
 
 
+def _preflight_gigachat(gc: "GigaChat", timeout_sec: int) -> Tuple[bool, str]:
+    # Проверка ENV токена и минимальный вызов
+    if not os.getenv("GIGACHAT_ACCESS_TOKEN") and not os.getenv("GIGACHAT_CREDENTIALS"):
+        return False, "ENV GIGACHAT_ACCESS_TOKEN (или GIGACHAT_CREDENTIALS) не задан"
+    try:
+        out = gc.invoke("ping")
+        return True, "ok" if out else (False, "no output")[1]
+    except Exception as e:
+        return False, f"preflight failed: {e}"
+
+
 def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[str] = None):
     latest = _latest_period(conn)
     if not latest:
@@ -235,9 +250,10 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
     # Конфигурация LLM из YAML (если есть)
     cfg = load_config() or {}
     llm_cfg = (cfg.get("llm") or {}) if isinstance(cfg, dict) else {}
-    # Жёсткие настройки: только Responses API
-    mode = "responses"
-    model_cfg = "gpt-5"
+    # Провайдер и базовые настройки
+    provider = str(llm_cfg.get("provider", "openai")).lower()
+    mode = "responses"  # Responses API для OpenAI
+    model_cfg = str(llm_cfg.get("model", "gpt-5"))
     eff = str(llm_cfg.get("reasoning_effort", "high"))
     reasoning_effort = eff if eff in ("low", "medium", "high") else "low"
     sys_prompt_file = llm_cfg.get("system_prompt_file")
@@ -288,11 +304,43 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
         path = os.path.join(base_dir, sys_prompt_file) if not os.path.isabs(sys_prompt_file) else sys_prompt_file
         system_prompt_text = _read_text_file(path)
 
-    client = OpenAI()
-    # Предзапусковая проверка доступности API/модели
-    ok_pf, why = _preflight_openai(client, model or model_cfg, min(timeout_sec, 30) if timeout_sec else 30)
-    if not ok_pf:
-        print(f"LLM preflight failed: {why}. Анализ прерван.")
+    # Провайдеры
+    client = None
+    gc_client = None
+    skip_preflight = dry_run or strict_cache
+    if provider == "openai":
+        client = OpenAI()
+        if not skip_preflight:
+            ok_pf, why = _preflight_openai(client, model or model_cfg, min(timeout_sec, 30) if timeout_sec else 30)
+            if not ok_pf:
+                print(f"LLM preflight failed: {why}. Анализ прерван.")
+                return
+    elif provider == "gigachat":
+        if GigaChat is None:
+            print("GigaChat не установлен: добавьте langchain-gigachat в requirements.txt")
+            return
+        gc_cfg = llm_cfg.get("gigachat", {})
+        gc_client = GigaChat(
+            access_token=os.getenv("GIGACHAT_ACCESS_TOKEN"),
+            scope=str(gc_cfg.get("scope", "GIGACHAT_API_PERS")),
+            model=str(gc_cfg.get("model", "GigaChat-2-Max")),
+            base_url=str(gc_cfg.get("base_url", "https://gigachat.devices.sberbank.ru/api/v1")),
+            profanity_check=bool(gc_cfg.get("profanity_check", False)),
+            timeout=int(gc_cfg.get("timeout_sec", timeout_sec)),
+            top_p=float(gc_cfg.get("top_p", 0.3)),
+            temperature=float(gc_cfg.get("temperature", 0.1)),
+            max_tokens=int(gc_cfg.get("max_tokens", 2000)),
+            verify_ssl_certs=bool(gc_cfg.get("verify_ssl_certs", False)),
+        )
+        if not skip_preflight:
+            ok_pf, why = _preflight_gigachat(gc_client, min(timeout_sec, 30) if timeout_sec else 30)
+            if not ok_pf:
+                print(f"LLM preflight failed (gigachat): {why}. Анализ прерван.")
+                return
+        # Для журналирования сохраним модель
+        model = gc_client.model
+    else:
+        print(f"Неизвестный LLM провайдер: {provider}")
         return
     cur = conn.cursor()
     banks = [r[0] for r in cur.execute("SELECT bank_id FROM banks").fetchall()]
@@ -400,7 +448,7 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
 
         # Запрос с ретраями и таймаутом
         try:
-            _save(req_path_h, {"mode": "responses", "model": model, "payload": payload})
+            _save(req_path_h, {"provider": provider, "mode": mode, "model": model, "payload": payload})
             system_text = messages[0]["content"]
             user_text = messages[1]["content"]
             attempt = 0
@@ -408,13 +456,19 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
             print(f"LLM> start bank {bank_id} (attempt {attempt+1})")
             while attempt <= max_retries:
                 try:
-                    resp = client.responses.create(
-                        model=model,
-                        input=f"<SYSTEM>\n{system_text}\n</SYSTEM>\n<USER>\n{user_text}\n</USER>",
-                        reasoning={"effort": reasoning_effort},
-                        timeout=timeout_sec,
-                    )
-                    content = resp.output_text if hasattr(resp, "output_text") else (getattr(resp, "content", None) or "")
+                    if provider == "openai" and client is not None:
+                        resp = client.responses.create(
+                            model=model,
+                            input=f"<SYSTEM>\n{system_text}\n</SYSTEM>\n<USER>\n{user_text}\n</USER>",
+                            reasoning={"effort": reasoning_effort},
+                            timeout=timeout_sec,
+                        )
+                        content = resp.output_text if hasattr(resp, "output_text") else (getattr(resp, "content", None) or "")
+                    elif provider == "gigachat" and gc_client is not None:
+                        prompt = f"СИСТЕМА:\n{system_text}\n\nПОЛЬЗОВАТЕЛЬ:\n{user_text}"
+                        content = str(gc_client.invoke(prompt))
+                    else:
+                        raise RuntimeError("LLM provider not initialized")
                     parsed = json.loads(content)
                     print(f"LLM> ok bank {bank_id}")
                     break

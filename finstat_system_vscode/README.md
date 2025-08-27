@@ -58,7 +58,35 @@
 3) Если ничего не сработало — `Green`.
 
 ## LLM‑анализ
-Используется OpenAI (Responses API, reasoning). По умолчанию модель `gpt-5` (можно изменить в `configs/config.yaml`). Анализ для последнего периода, 6‑месячный срез метрик: A1, QN9, O1, O2, QN11, QN15, QN18, QN19, QN13, а также соответствующие PCT_M1/PCT_M6, и `QN17`, `QN16`.
+Поддерживаются провайдеры:
+- `openai` — Responses API (reasoning), модель по умолчанию `gpt-5`;
+- `gigachat` — через `langchain_gigachat.GigaChat`.
+
+Выбор провайдера и параметры — в `configs/config.yaml` → `llm`:
+```yaml
+llm:
+  provider: "openai"   # openai | gigachat
+  model: "gpt-5"        # для openai
+  reasoning_effort: "low"
+  system_prompt_file: "configs/llm_system_prompt.txt"
+  # Параметры GigaChat
+  gigachat:
+    model: "GigaChat-2-Max"
+    base_url: "https://sbercode.atdcode.ru/proxy/api/v1/gigachat/"
+    scope: "GIGACHAT_API_PERS"
+    timeout_sec: 180
+    temperature: 0.1
+    top_p: 0.3
+    max_tokens: 2000
+    profanity_check: false
+    verify_ssl_certs: false
+```
+
+Ожидаемые переменные окружения:
+- для OpenAI: `OPENAI_API_KEY`;
+- для GigaChat: `GIGACHAT_ACCESS_TOKEN` (или `GIGACHAT_CREDENTIALS`).
+
+Анализ выполняется для последнего периода, 6‑месячный срез метрик: A1, QN9, O1, O2, QN11, QN15, QN18, QN19, QN13, а также соответствующие PCT_M1/PCT_M6, и `QN17`, `QN16`.
 
 Системный промпт (сокращенно):
 > Ты — беспристрастный риск‑аналитик межбанковского кредитования. Оцени риски ликвидности, фондирования, капитала и качества активов на горизонте 1–3 мес. Используй только предоставленные данные. Не делай выводов о высоком риске без подтверждений несколькими показателями и устойчивой динамики. Сезонные колебания не трактуй как ухудшение. Если данных недостаточно — выбирай Green. Верни чистый JSON со схемой: {status, confidence, reasons[], watchlist[], recommendation, metrics_snapshot, summary_ru}.
