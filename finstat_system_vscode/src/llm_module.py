@@ -242,6 +242,30 @@ def _preflight_gigachat(gc: "GigaChat", timeout_sec: int) -> Tuple[bool, str]:
         return False, f"preflight failed: {e}"
 
 
+def _extract_first_json_object(text: str) -> Optional[str]:
+    if not text:
+        return None
+    # Попытка найти первый валидный JSON-объект по балансировке скобок
+    start = text.find('{')
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i+1]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except Exception:
+                        break
+        start = text.find('{', start + 1)
+    return None
+
+
 def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[str] = None):
     latest = _latest_period(conn)
     if not latest:
@@ -466,7 +490,13 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
                         content = resp.output_text if hasattr(resp, "output_text") else (getattr(resp, "content", None) or "")
                     elif provider == "gigachat" and gc_client is not None:
                         prompt = f"СИСТЕМА:\n{system_text}\n\nПОЛЬЗОВАТЕЛЬ:\n{user_text}"
-                        content = str(gc_client.invoke(prompt))
+                        gc_resp = gc_client.invoke(prompt)
+                        # LangChain может вернуть различные типы; приводим к строке
+                        content = getattr(gc_resp, "content", None) or str(gc_resp)
+                        # Попытаемся выделить JSON из произвольного текста
+                        extracted = _extract_first_json_object(content)
+                        if extracted:
+                            content = extracted
                     else:
                         raise RuntimeError("LLM provider not initialized")
                     parsed = json.loads(content)

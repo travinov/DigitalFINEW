@@ -88,6 +88,49 @@ llm:
 
 Анализ выполняется для последнего периода, 6‑месячный срез метрик: A1, QN9, O1, O2, QN11, QN15, QN18, QN19, QN13, а также соответствующие PCT_M1/PCT_M6, и `QN17`, `QN16`.
 
+### Провайдер GigaChat — настройка и быстрый старт
+
+1) Зависимости (уже в `requirements.txt`, на всякий случай):
+```bash
+python3 -m pip install -r finstat_system_vscode/requirements.txt
+```
+
+2) Переключите провайдера в `configs/config.yaml`:
+```yaml
+llm:
+  provider: "gigachat"   # openai | gigachat
+  gigachat:
+    model: "GigaChat-2-Max"
+    base_url: "https://sbercode.atdcode.ru/proxy/api/v1/gigachat/"
+    scope: "GIGACHAT_API_PERS"
+    timeout_sec: 180
+    temperature: 0.1
+    top_p: 0.3
+    max_tokens: 2000
+    profanity_check: false
+    verify_ssl_certs: false
+```
+
+3) Добавьте токен в `.env` (файл не коммитится):
+```bash
+echo 'GIGACHAT_ACCESS_TOKEN=<ВАШ_ТОКЕН>' >> finstat_system_vscode/.env
+```
+Примечание: токен GigaChat обычно живёт ~8 часов; при 401/403 обновите значение и повторите запуск.
+
+4) Быстрый тест на малом числе банков:
+```bash
+python -m venv venv && source venv/bin/activate
+pip install -r finstat_system_vscode/requirements.txt
+LLM_BANK_LIMIT=1 python finstat_system_vscode/run.py llm-analyze
+python finstat_system_vscode/run.py report --period latest --outfile finstat_system_vscode/reports/report_test.xlsx
+```
+
+5) Типовые проблемы:
+- 401/403: истёк/неверный токен — обновите `GIGACHAT_ACCESS_TOKEN` в `finstat_system_vscode/.env`.
+- Таймаут: увеличьте `llm.gigachat.timeout_sec` в `configs/config.yaml`.
+- Ошибка парсинга JSON: ответ может содержать текст вокруг JSON. Модуль автоматически извлекает первый валидный JSON‑объект; при систематической проблеме уточните промпт.
+- SSL/прокси: при корпоративном сертификате можно временно выставить `verify_ssl_certs: false` (понижает безопасность).
+
 Системный промпт (сокращенно):
 > Ты — беспристрастный риск‑аналитик межбанковского кредитования. Оцени риски ликвидности, фондирования, капитала и качества активов на горизонте 1–3 мес. Используй только предоставленные данные. Не делай выводов о высоком риске без подтверждений несколькими показателями и устойчивой динамики. Сезонные колебания не трактуй как ухудшение. Если данных недостаточно — выбирай Green. Верни чистый JSON со схемой: {status, confidence, reasons[], watchlist[], recommendation, metrics_snapshot, summary_ru}.
 

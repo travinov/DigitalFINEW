@@ -72,7 +72,7 @@ forms:
 
 # LLM настройки
 llm:
-  provider: "openai"             # openai | gigachat
+  provider: "gigachat"           # openai | gigachat
   mode: "responses"               # assistants | responses
   model: "gpt-5"                  # модель с рассуждениями (Responses API)
   reasoning_effort: "low"         # low | medium | high
