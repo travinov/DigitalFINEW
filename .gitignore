@@ -13,3 +13,4 @@ __pycache__/
 finstat_system_vscode/.env
 finstat_system_vscode/*.env
 finstat_system_vscode/.env.*
+venv/
