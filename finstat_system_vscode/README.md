@@ -69,6 +69,7 @@ llm:
   model: "gpt-5"        # для openai
   reasoning_effort: "low"
   system_prompt_file: "configs/llm_system_prompt.txt"
+  user_prompt_file: "configs/llm_user_prompt.txt"
   # Параметры GigaChat
   gigachat:
     model: "GigaChat-2-Max"
