@@ -12,7 +12,12 @@ from src.data_viewer import main as data_viewer_main
 def main():
     # Подхватываем переменные окружения из .env (если есть)
     try:
+        # 1) .env из текущего каталога запуска (корень проекта)
         load_dotenv()
+        # 2) .env рядом с run.py (finstat_system_vscode/.env)
+        local_env_path = os.path.join(os.path.dirname(__file__), ".env")
+        if os.path.exists(local_env_path):
+            load_dotenv(local_env_path, override=False)
     except Exception:
         pass
     parser = argparse.ArgumentParser(description="Финансовая система анализа")

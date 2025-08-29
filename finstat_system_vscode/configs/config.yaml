@@ -72,10 +72,12 @@ forms:
 
 # LLM настройки
 llm:
+  provider: "gigachat"           # openai | gigachat
   mode: "responses"               # assistants | responses
   model: "gpt-5"                  # модель с рассуждениями (Responses API)
   reasoning_effort: "low"         # low | medium | high
   system_prompt_file: "configs/llm_system_prompt.txt"
+  user_prompt_file: "configs/llm_user_prompt.txt"
   # Ограничители и устойчивость
   bank_limit: 0                    # 0 = без ограничения сверху (доп. лимит к переменной окружения LLM_BANK_LIMIT)
   max_banks: 0                     # жёсткий потолок на обработку за запуск (0 = без потолка)
@@ -83,11 +85,23 @@ llm:
   dry_run: false                   # true — ничего не отправлять в API, только выводить план
   strict_cache: false              # true — не вызывать API, если нет кэша (только чтение кэша)
   timeout_sec: 180                 # таймаут HTTP для одного запроса
-  max_retries: 0                   # число повторов при временных сбоях
-  backoff_seconds: 1               # базовая задержка между повторами (экспоненциальная)
-  stop_after_consecutive_errors: 1 # остановить прогон, если подряд столько ошибок
-  bank_limit: 0                    # 0 = без ограничений
+  max_retries: 2                   # число повторов при временных сбоях
+  backoff_seconds: 2               # базовая задержка между повторами (экспоненциальная)
+  stop_after_consecutive_errors: 10 # остановить прогон, если подряд столько ошибок
+  bank_limit: 0                    # 0 = без ограничения
   concurrency: 1                   # зарезервировано на будущее
   retry_policy:
     max_retries: 2
     backoff_seconds: 2
+
+  # Настройки GigaChat (используются при provider: gigachat)
+  gigachat:
+    model: "GigaChat-2-Max"
+    base_url: "https://sbercode.atdcode.ru/proxy/api/v1/gigachat/"
+    scope: "GIGACHAT_API_PERS"
+    timeout_sec: 180
+    temperature: 0.1
+    top_p: 0.3
+    max_tokens: 2000
+    profanity_check: false
+    verify_ssl_certs: false

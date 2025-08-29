@@ -10,7 +10,15 @@ def make_report(conn: sqlite3.Connection, period="latest", outfile="report.xlsx"
     if outfile == "report.xlsx" or not outfile:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_period = str(period).replace("-", "")
-        outfile = f"report_{safe_period}_{ts}.xlsx"
+        outfile = f"reports/report_{safe_period}_{ts}.xlsx"
+    # Создаём директорию для отчётов, если путь включает подкаталоги
+    try:
+        import os
+        d = os.path.dirname(outfile)
+        if d and not os.path.exists(d):
+            os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
     banks=pd.read_sql_query("SELECT bank_id, COALESCE(bank_name, bank_id) as bank_name FROM banks", conn)
     ind=pd.read_sql_query("SELECT bank_id, indicator_id, value FROM indicator_values WHERE period=?", conn, params=(period,))
     if ind.empty: print("Нет индикаторов на указанный период."); return
