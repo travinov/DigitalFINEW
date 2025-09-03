@@ -27,7 +27,8 @@ def main():
     p_import.add_argument("--all", action="store_true", help="Импортировать все новые файлы")
     sub.add_parser("calc-indicators", help="Рассчитать индикаторы")
     sub.add_parser("classify", help="Алгоритмическая классификация")
-    sub.add_parser("llm-analyze", help="LLM-анализ (модель рассуждений, кэширование промптов)")
+    p_llm = sub.add_parser("llm-analyze", help="LLM-анализ (кэширование промптов)")
+    p_llm.add_argument("--period", default="latest", help="Дата YYYY-MM-DD или 'latest' (берется ближайший доступный период ≤ даты)")
     p_report = sub.add_parser("report", help="Сформировать XLS отчет")
     p_report.add_argument("--period", default="latest", help="Дата YYYY-MM-DD или 'latest'")
     p_report.add_argument("--outfile", default="report.xlsx", help="Имя выходного файла")
@@ -48,7 +49,7 @@ def main():
     elif args.cmd == "classify":
         conn = get_conn(); classify_all(conn)
     elif args.cmd == "llm-analyze":
-        conn = get_conn(); llm_analyze_all(conn)
+        conn = get_conn(); llm_analyze_all(conn, period=args.period)
     elif args.cmd == "report":
         conn = get_conn(); make_report(conn, period=args.period, outfile=args.outfile); print(f"Отчет сохранен: {args.outfile}")
     elif args.cmd == "view":

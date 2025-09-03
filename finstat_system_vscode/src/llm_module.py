@@ -19,11 +19,25 @@ def _latest_period(conn: sqlite3.Connection) -> str:
     return r[0] if r and r[0] else None
 
 
+def _resolve_period(conn: sqlite3.Connection, desired: Optional[str]) -> Optional[str]:
+    """Возвращает ближайший доступный период ≤ desired. desired='latest' → последний."""
+    if not desired or desired == "latest":
+        return _latest_period(conn)
+    cur = conn.cursor()
+    row = cur.execute("SELECT 1 FROM raw_values WHERE period=? LIMIT 1", (desired,)).fetchone()
+    if row:
+        return desired
+    row = cur.execute("SELECT MAX(period) FROM raw_values WHERE period<=?", (desired,)).fetchone()
+    if row and row[0]:
+        return row[0]
+    return _latest_period(conn)
+
 METRICS_BASE = [
-    "A1", "QN9", "O1", "O2", "QN11", "QN15", "QN18", "QN19", "QN13"
+    "A1", "QN9", "O1", "O2", "QN11", "QN15", "QN18", "QN19", "QN13",
+    "QN17", "QN16"
 ]
 METRICS_PCT = [f"{m}_PCT_M1" for m in METRICS_BASE] + [f"{m}_PCT_M6" for m in METRICS_BASE]
-METRICS_SINGLE = ["QN17", "QN16"]
+METRICS_SINGLE = []
 
 
 def _collect_series(conn: sqlite3.Connection, bank_id: str, periods: List[str]) -> Dict[str, Dict]:
@@ -35,7 +49,10 @@ def _collect_series(conn: sqlite3.Connection, bank_id: str, periods: List[str]) 
             % (",".join(["?"] * len(periods))),
             (bank_id, m, *periods),
         ).fetchall()
-        res[m] = {"series": sorted([{ "p": p, "v": v } for p, v in rows], key=lambda x: x["p"]) }
+        value_by_period = {p: v for p, v in rows}
+        # Явно заполняем все запрошенные периоды; отсутствие записи -> null
+        series = [{"p": p, "v": value_by_period.get(p)} for p in sorted(periods)]
+        res[m] = {"series": series }
     for m in METRICS_PCT + METRICS_SINGLE:
         rows = cur.execute(
             "SELECT period, value FROM indicator_values WHERE bank_id=? AND indicator_id=? AND period IN (%s)"
@@ -471,6 +488,7 @@ def analyze_one_bank(
     dry_run: bool,
     max_retries: int,
     backoff_seconds: int,
+    always_recompute: bool,
 ) -> bool:
     metrics = _collect_series(conn, bank_id, periods)
     peers = {}
@@ -490,7 +508,7 @@ def analyze_one_bank(
     messages = build_messages(data_json, json.dumps({"indicators": indicator_defs}, ensure_ascii=False), system_prompt_text, params_json, user_prompt_text)
     cache_key = make_cache_key(model, messages, payload)
     req_path_h, resp_path_h, cached = cache_get(logs_dir, bank_id, cache_key)
-    if cached is not None:
+    if (not always_recompute) and (cached is not None):
         save_result(cur, logs_dir, bank_id, model, latest, resp_path_h, cached)
         return False
     system_text = messages[0]["content"]
@@ -533,9 +551,9 @@ def analyze_one_bank(
         return True
     save_result(cur, logs_dir, bank_id, model, latest, resp_path_h, parsed)
     return False
-def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[str] = None):
-    latest = _latest_period(conn)
-    if not latest:
+def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[str] = None, period: Optional[str] = None):
+    target_period = _resolve_period(conn, period or "latest")
+    if not target_period:
         print("Нет данных для LLM-анализа."); return
 
     # Конфигурация LLM из YAML (если есть)
@@ -554,6 +572,7 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
     only_errors = bool(llm_cfg.get("only_errors", False))
     dry_run = bool(llm_cfg.get("dry_run", False))
     strict_cache = bool(llm_cfg.get("strict_cache", False))
+    always_recompute = bool(llm_cfg.get("always_recompute", True))
     timeout_sec = int(llm_cfg.get("timeout_sec", 120) or 120)
     max_retries = int(llm_cfg.get("max_retries", 2) or 2)
     backoff_seconds = int(llm_cfg.get("backoff_seconds", 2) or 2)
@@ -565,7 +584,7 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
     # Периоды для среза
     periods = [r[0] for r in conn.cursor().execute(
         "SELECT DISTINCT period FROM raw_values WHERE period<=? ORDER BY period DESC LIMIT ?",
-        (latest, months),
+        (target_period, months),
     ).fetchall()]
     periods = sorted(periods)
 
@@ -646,10 +665,10 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
             print(f"LLM preflight failed: {why}. Анализ прерван.")
             return
     cur = conn.cursor()
-    banks = select_banks(cur, latest, only_errors, bank_limit, max_banks)
+    banks = select_banks(cur, target_period, only_errors, bank_limit, max_banks)
 
-    print(f"LLM-анализ: период {latest}, банков: {len(banks)}, модель: {model}, режим: responses")
-    logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "llm_logs", latest)
+    print(f"LLM-анализ: период {target_period}, банков: {len(banks)}, модель: {model}, режим: responses")
+    logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "llm_logs", target_period)
     os.makedirs(logs_dir, exist_ok=True)
     # Сохраняем описание параметров один раз на период
     try:
@@ -680,7 +699,7 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
             cur=cur,
             bank_id=bank_id,
             periods=periods,
-            latest=latest,
+            latest=target_period,
             provider=provider,
             model=model,
             client=client,
@@ -696,6 +715,7 @@ def llm_analyze_all(conn: sqlite3.Connection, months: int = 6, model: Optional[s
             dry_run=dry_run,
             max_retries=max_retries,
             backoff_seconds=backoff_seconds,
+            always_recompute=always_recompute,
         )
         wrote += 1
         if had_error:

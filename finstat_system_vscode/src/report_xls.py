@@ -3,8 +3,28 @@ from datetime import datetime
 def _latest_period(conn):
     cur=conn.cursor(); cur.execute("SELECT MAX(period) FROM raw_values")
     r=cur.fetchone(); return r[0] if r and r[0] else None
+
+def _resolve_period(conn: sqlite3.Connection, desired: str) -> str:
+    """Возвращает ближайший доступный период ≤ desired. Если desired=='latest' — последний.
+    Ожидается формат YYYY-MM-DD. Если точного совпадения нет — берём MAX(period) ≤ desired.
+    """
+    if desired == "latest" or not desired:
+        return _latest_period(conn)
+    cur = conn.cursor()
+    # Прямое совпадение
+    row = cur.execute("SELECT 1 FROM raw_values WHERE period=? LIMIT 1", (desired,)).fetchone()
+    if row:
+        return desired
+    # Ближайший ≤ desired
+    row = cur.execute("SELECT MAX(period) FROM raw_values WHERE period<=?", (desired,)).fetchone()
+    if row and row[0]:
+        return row[0]
+    # Фолбэк: если нет периодов ≤ desired, вернуть самый ранний доступный
+    row = cur.execute("SELECT MIN(period) FROM raw_values").fetchone()
+    return row[0] if row and row[0] else None
 def make_report(conn: sqlite3.Connection, period="latest", outfile="report.xlsx"):
-    if period=="latest": period=_latest_period(conn)
+    # Разрешаем произвольную дату: выбираем ближайший доступный период ≤ указанной дате
+    period = _resolve_period(conn, period or "latest")
     if not period: print("Нет данных для отчета."); return
     # Генерируем имя файла с датой/временем, если используется имя по умолчанию
     if outfile == "report.xlsx" or not outfile:

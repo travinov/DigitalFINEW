@@ -166,8 +166,66 @@ llm:
 3) Импорт: `python run.py import` (после импорта файлы перемещаются в `archive/`).
 4) Расчет индикаторов: `python run.py calc-indicators` (включая PCT_M1/PCT_M6).
 5) Классификация: `python run.py classify`.
-6) LLM‑анализ: `python run.py llm-analyze`.
-7) Отчет XLS: `python run.py report --period latest` → файл `report_<YYYYMMDD>_<YYYYMMDD_HHMMSS>.xlsx`.
+6) LLM‑анализ:
+   - последний период: `python run.py llm-analyze`
+   - на дату (берётся ближайший доступный период ≤ даты): `python run.py llm-analyze --period 2024-06-01`
+
+### Ограничение количества банков для анализа LLM
+
+Есть два способа ограничить число обрабатываемых банков в одном запуске:
+
+- Через конфиг `configs/config.yaml` → `llm.bank_limit`:
+  ```yaml
+  llm:
+    bank_limit: 5   # 0 = без ограничения
+  ```
+
+- Через переменную окружения во время запуска (удобно для разовых прогонов):
+  ```bash
+  LLM_BANK_LIMIT=5 python run.py llm-analyze
+  LLM_BANK_LIMIT=5 python run.py llm-analyze --period 2024-06-01
+  ```
+
+Правило при совместном использовании: берётся минимальное из `llm.bank_limit` и `LLM_BANK_LIMIT`. Если одно из них 0 (без лимита), действует другое.
+
+Дополнительно можно прогонять только проблемные/отсутствующие записи, включив в конфиге `llm.only_errors: true`.
+
+### Перезапись результатов LLM при повторных запусках
+
+Поведение кэша/перезаписи регулируется флагом `llm.always_recompute` в `configs/config.yaml`:
+
+```yaml
+llm:
+  # Если true (по умолчанию) — кэш игнорируется, запрос уходит в LLM заново,
+  # а результат перезаписывается в БД и логи
+  always_recompute: true
+```
+
+Установите `false`, если хотите использовать уже сохранённые ответы при совпадении payload+prompt (кэш‑хит).
+7) Отчет XLS:
+   - последний период: `python run.py report --period latest --outfile finstat_system_vscode/reports/report_latest.xlsx`
+   - на дату: `python run.py report --period 2024-06-01 --outfile finstat_system_vscode/reports/report_2024-06-01.xlsx`
+
+### Запуск полного воркфлоу одной командой
+
+В репозитории есть скрипт `scripts/run_workflow.sh`, который выполняет полный цикл: импорт новых файлов из `input/` (если есть), пересчёт индикаторов, LLM‑анализ и формирование отчёта.
+
+Примеры запуска:
+```bash
+cd finstat_system_vscode
+source venv/bin/activate
+
+# На последний период
+scripts/run_workflow.sh
+
+# На конкретную дату
+scripts/run_workflow.sh --period 2024-03-01
+
+# На дату и с лимитом 50 банков (аналог LLM_BANK_LIMIT=50)
+scripts/run_workflow.sh --period 2024-03-01 --limit 50
+```
+
+Скрипт автоматически подхватывает токены из `finstat_system_vscode/.env` (например, `GIGACHAT_ACCESS_TOKEN`).
 8) Просмотр данных (опционально): `python run.py view summary` и другие команды.
 
 ## Установка и запуск (How‑to)
@@ -176,14 +234,21 @@ llm:
 python3 -m pip install -r requirements.txt
 # Для RAR на macOS: brew install unar (или apt install unrar на Linux)
 ```
-2) Настроить ключ OpenAI через `.env` (рекомендуется) в `finstat_system_vscode/.env`:
+2) Активировать среду и настроить ключи в `.env` (рекомендуется) в `finstat_system_vscode/.env`:
 ```
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# Ключи провайдеров (по необходимости):
 OPENAI_API_KEY=sk-...
+GIGACHAT_ACCESS_TOKEN=...
 ```
-3) Выполнить пайплайн (пример):
+3) Импорт и пересчет (пример):
 ```
 python run.py init-db
-python run.py import
+# Импорт всех новых файлов из input/ (обязательно с активированной средой)
+python run.py import --all
+# Пересчитать индикаторы и изменения
 python run.py calc-indicators
 python run.py classify
 python run.py llm-analyze
